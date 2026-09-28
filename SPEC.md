@@ -4,7 +4,7 @@
 Construire un backtester de A a Z dont je comprends et maitrise absolument chaque ligne de code. La rentabilite financiere est un bonus ; le succes se mesure a la creation d'un outil formateur, fiable et presentable pour mes futurs stages ou mon CV.
 
 ## Perimetre
-Creation d'un environnement de backtest automatise en Python 3.13 pour le trading algorithmique, centre sur la paire BTC/USDT. Decisions techniques : spot Binance uniquement (pas de futures), timeframe 4h, horodatage UTC. Cela inclut l'ingestion de donnees propres (Binance API), un moteur de simulation integrant les frais et le slippage, un systeme de validation rigoureux et un module de paper trading.
+Creation d'un environnement de backtest automatise en Python 3.14 pour le trading algorithmique, centre sur la paire BTC/USDT. Decisions techniques : spot Binance uniquement (pas de futures), timeframe 4h, horodatage UTC. Cela inclut l'ingestion de donnees propres (Binance API), un moteur de simulation integrant les frais et le slippage, un systeme de validation rigoureux et un module de paper trading.
 
 ## Interdits
 - Pas de Machine Learning avant d'avoir valide le palier P3.
@@ -29,7 +29,6 @@ Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune
 
 ## Condition d'arret
 - Trois idees de strategie echouees au gate P3 : fin du volet trading, le projet s'arrete la et le backtester reste uniquement comme projet personnel.
-- Si l'ecart entre le paper trading (P4) et le backtest est trop grand (signe de surajustement).
 
 ## Paliers
 - **P0 - Infra :** Repo Git, SPEC.md, requirements.txt. 
@@ -41,5 +40,5 @@ Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune
 - **P3 - Validation :** Train sur 2021-2023, Test sur 2024-2026. 
   *Gate :* voir section "Gate P3" ci-dessus (3 criteres).
 - **P4 - Paper trading :** Live sans argent reel pendant 2 mois minimum. 
-  *Gate :* La courbe de performance en live correspond aux attentes du backtest.
+  *Gate :* critere chiffre fixe avant le demarrage de P4, jamais pendant.
 - **P5 - Argent reel :** 100 € maximum alloues pour tester la psychologie face au marche reel.
