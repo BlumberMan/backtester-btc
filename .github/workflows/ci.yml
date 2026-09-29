@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install-and-test:
+    runs-on: windows-latest
+    steps:
+      # Récupère le code du dépôt sur la machine vierge
+      - uses: actions/checkout@v7
+
+      # Installe Python 3.14 exactement, sans aucun cache
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # Crée l'environnement virtuel comme décrit dans le README
+      - name: Créer le venv
+        shell: cmd
+        run: python -m venv .venv
+
+      # Affiche la version de Python du venv
+      - name: Afficher la version de Python
+        shell: cmd
+        run: .venv\Scripts\python.exe --version
+
+      # Installe les dépendances épinglées depuis zéro, sans cache pip
+      - name: Installer les dépendances
+        shell: cmd
+        run: .venv\Scripts\python.exe -m pip install --no-cache-dir -r requirements.txt
+
+      # Liste les paquets réellement installés dans le venv
+      - name: Lister les paquets installés
+        shell: cmd
+        run: .venv\Scripts\python.exe -m pip freeze
+
+      # Lance la suite de tests en mode verbeux
+      - name: Lancer les tests
+        shell: cmd
+        run: .venv\Scripts\python.exe -m pytest -v
+
+      # Vérifie que les tests n'ont laissé aucun fichier modifié ou non suivi
+      - name: Vérifier que le dépôt est resté propre
+        shell: pwsh
+        run: |
+          git status
+          $porcelain = git status --porcelain
+          if ($porcelain) {
+            Write-Output "Le dépôt n'est pas propre après les tests :"
+            Write-Output $porcelain
+            exit 1
+          }
