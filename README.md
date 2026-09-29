@@ -2,6 +2,9 @@
 
 Backtester de stratégies de trading sur BTC/USDT, écrit en Python 3.14.
 
+## Prérequis
+Git et Python 3.14 installés.
+
 ## Installation (Windows)
 
 ```
