@@ -15,3 +15,9 @@ Leçons : la commande de test est python -m pytest -v (pytest seul ne trouve pas
 
 Prochaine étape : téléchargement réel ×2 depuis la racine du repo + hash SHA-256 des deux fichiers, puis module clean (trous, doublons, UTC) → gate P1.
 
+2026-09-30 (session 4) — P1 en cours. Fait : download réel ×2, hash identiques (brut 5d9e32da…) ; module clean.py (dedupe strict, validation OHLC en Decimal, find\_gaps sans comblement, datetime\_utc) + 12 tests, 21 passed ; 12 414 bougies, 0 doublon, 0 trou, 0 volume nul, hash propre 299fb0ec… ×2 ; hash de référence dans le README.
+
+Leçons : pas de (.venv) dans le prompt = Python système, sans les dépendances ; une commande plante → on arrête la série et on colle l'erreur ; un nettoyage qui plante laisse l'ancien fichier sur le disque, ne jamais s'y fier.
+
+Prochaine étape : gate P1 = clone neuf dans un autre dossier, un autre jour, download + clean, les deux hash doivent correspondre au README.
+
