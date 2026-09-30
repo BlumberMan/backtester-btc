@@ -21,3 +21,9 @@ Leçons : pas de (.venv) dans le prompt = Python système, sans les dépendances
 
 Prochaine étape : gate P1 = clone neuf dans un autre dossier, un autre jour, download + clean, les deux hash doivent correspondre au README.
 
+2026-09-30 (session 4 bis) — Gate P1, partie clone neuf OK : clone dans %TEMP%, venv neuf, 21 passed, hash brut 5d9e32da… et propre 299fb0ec… identiques au README.
+
+Leçons : les hash de référence sont dans le README ; toute régénération des données se vérifie contre eux, sinon on arrête tout.
+
+Prochaine étape : début de prochaine session (autre jour) : download + clean + 2 certutil → si identiques, P1 VALIDÉ, puis ouverture de P2.
+
