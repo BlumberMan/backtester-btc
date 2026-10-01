@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,10 @@ import backtester.holdout
 from backtester.clean import CLEAN_HEADER, to_utc_str
 from backtester.lock import LockError
 import backtester.runner
-from backtester.runner import check_causality, load_strategy, main, period_targets, run_test, run_train
+from backtester.runner import (
+    DATA_SHA256, MAX_CUTS, _check_cuts, check_causality, check_data_hash, load_strategy, main,
+    period_targets, run_test, run_train,
+)
 
 T0 = 1609459200000  # 2021-01-01T00:00:00Z
 STEP = 14400000  # 4h
@@ -18,6 +22,7 @@ AFTER_TEST = 1788220800000  # 2026-09-01T00:00:00Z
 
 BACKTESTER_DIR = Path(__file__).resolve().parent.parent / "backtester"
 RUNNER_PY = BACKTESTER_DIR / "runner.py"
+README = BACKTESTER_DIR.parent / "README.md"
 
 VALID = "WARMUP = 10\n\ndef compute_targets(candles):\n    return [0] * len(candles)\n"
 
@@ -65,6 +70,11 @@ CHEAT = (
 
 def rising_candles(n):
     return [(T0 + i * STEP, 100.0 + i, 100.0 + i, 100.0 + i, 100.0 + i) for i in range(n)]
+
+
+def sha256(path):
+    """Hash attendu calcule independamment de runner.check_data_hash."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def write_file(path, content):
@@ -182,6 +192,70 @@ def test_check_causality_strategie_tricheuse_refusee():
         check_causality(strategy_from(CHEAT), rising_candles(50))
 
 
+def jump_candles(n, jumps):
+    """Prix constants a 100, sauf un saut de +10 % (qui reste) a chaque index de jumps."""
+    out, price = [], 100.0
+    for i in range(n):
+        if i in jumps:
+            price *= 1.1
+        out.append((T0 + i * STEP, price, price, price, price))
+    return out
+
+
+RARE_CHEAT = (
+    "WARMUP = 0\n\n"
+    "def compute_targets(candles):\n"
+    "    return [1 if i + 1 < len(candles) and candles[i + 1][4] > candles[i][4] * 1.05 else 0\n"
+    "            for i in range(len(candles))]\n"
+)
+
+
+def test_check_causality_tricheuse_rare_refusee_mais_passait_l_ancienne_methode():
+    # Sauts a 500, 1200, 1700 : la triche porte sur les cibles 499, 1199, 1699, hors des
+    # index {0, 1, 9, 99, 999, 998, 1998} que verifiaient les 7 anciennes coupures.
+    cs = jump_candles(2000, {500, 1200, 1700})
+    strategy = strategy_from(RARE_CHEAT)
+    full = strategy.compute_targets(cs)
+    assert [i for i, t in enumerate(full) if t == 1] == [499, 1199, 1699]
+
+    _check_cuts(strategy, cs, full, [1, 2, 10, 100, 1000, 1000, 1999])  # ancienne methode : passe
+    with pytest.raises(ValueError, match="lookahead detecte : la cible a l'index 499"):
+        check_causality(strategy, cs)
+
+
+def test_check_causality_nombre_d_appels_borne():
+    # Cible alternee (causale) : 998 points de decision, la reduction a MAX_CUTS doit s'appliquer.
+    calls = []
+
+    def compute_targets(cs):
+        calls.append(len(cs))
+        return [i % 2 for i in range(len(cs))]
+
+    check_causality(SimpleNamespace(WARMUP=0, compute_targets=compute_targets), candles(1000))
+    assert MAX_CUTS == 300
+    assert len(calls) <= 301
+    assert calls[0] == 1000
+
+
+# check_data_hash
+
+def test_check_data_hash_bon_hash(tmp_path):
+    path = tmp_path / "x.csv"
+    path.write_bytes(b"a,b\n1,2\n")
+    check_data_hash(path, hashlib.sha256(b"a,b\n1,2\n").hexdigest())
+
+
+def test_check_data_hash_hash_faux(tmp_path):
+    path = tmp_path / "x.csv"
+    path.write_bytes(b"a,b\n1,2\n")
+    with pytest.raises(ValueError, match="0" * 64):
+        check_data_hash(path, "0" * 64)
+
+
+def test_data_sha256_ecrit_dans_le_readme():
+    assert DATA_SHA256 in README.read_text(encoding="utf-8")
+
+
 # run_train
 
 @pytest.fixture
@@ -192,7 +266,7 @@ def train_dir(tmp_path):
 
 def test_run_train_toujours_0(train_dir):
     write_file(train_dir / "strategies" / "zero.py", strategy_source(0, 0))
-    result = run_train("zero", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies")
+    result = run_train("zero", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies", sha256(train_dir / "BTCUSDT_4h.csv"))
     assert result["warmup"] == 0
     assert result["final_normal"] == 1000.0
     assert result["n_trades"] == 0
@@ -202,7 +276,7 @@ def test_run_train_toujours_0(train_dir):
 
 def test_run_train_toujours_1_warmup_5(train_dir):
     write_file(train_dir / "strategies" / "un.py", strategy_source(5, 1))
-    result = run_train("un", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies")
+    result = run_train("un", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies", sha256(train_dir / "BTCUSDT_4h.csv"))
     assert result["warmup"] == 5
     assert result["n_trades"] == 1
 
@@ -216,19 +290,25 @@ def rising_dir(tmp_path):
 def test_run_train_strategie_tricheuse_refusee(rising_dir):
     write_file(rising_dir / "strategies" / "cheat.py", CHEAT)
     with pytest.raises(ValueError, match="lookahead"):
-        run_train("cheat", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies")
+        run_train("cheat", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies", sha256(rising_dir / "BTCUSDT_4h.csv"))
 
 
 def test_run_train_strategie_causale_passe(rising_dir):
     write_file(rising_dir / "strategies" / "causal.py", CAUSAL)
-    result = run_train("causal", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies")
+    result = run_train("causal", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies", sha256(rising_dir / "BTCUSDT_4h.csv"))
     assert result["warmup"] == 0
+
+
+def test_run_train_hash_faux(train_dir):
+    write_file(train_dir / "strategies" / "zero.py", strategy_source(0, 0))
+    with pytest.raises(ValueError, match="hash"):
+        run_train("zero", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies", "0" * 64)
 
 
 def test_run_train_warmup_plus_long_que_le_train(train_dir):
     write_file(train_dir / "strategies" / "long.py", strategy_source(7000, 0))
     with pytest.raises(ValueError, match="WARMUP"):
-        run_train("long", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies")
+        run_train("long", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies", sha256(train_dir / "BTCUSDT_4h.csv"))
 
 
 # run_test
@@ -256,7 +336,7 @@ def setup(tmp_path):
 
 
 def test_run_test_succes_ecrit_le_resultat(setup):
-    result = run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+    result = run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
     assert result["warmup"] == 3
     assert result["n_trades"] == 0
     lines = setup.results.read_text(encoding="utf-8").splitlines()
@@ -265,15 +345,15 @@ def test_run_test_succes_ecrit_le_resultat(setup):
 
 
 def test_run_test_deuxieme_appel_refuse(setup):
-    run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+    run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
     with pytest.raises(LockError, match="deja"):
-        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
 
 
 def test_run_test_tag_absent_aucune_ecriture(setup):
     git(setup.repo, "tag", "-d", "test-zero")
     with pytest.raises(LockError):
-        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
     assert not setup.results.exists()
 
 
@@ -282,7 +362,7 @@ def test_run_test_n_appelle_pas_check_causality(setup, monkeypatch):
         raise AssertionError("check_causality appele par run_test")
 
     monkeypatch.setattr(backtester.runner, "check_causality", interdit)
-    result = run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+    result = run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
     assert result["n_trades"] == 0
 
 
@@ -293,7 +373,17 @@ def test_run_test_verrou_refuse_test_jamais_lu(setup, monkeypatch):
     monkeypatch.setattr(backtester.holdout, "load_test", interdit)
     git(setup.repo, "tag", "-d", "test-zero")
     with pytest.raises(LockError):
-        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, sha256(setup.data))
+
+
+def test_run_test_hash_faux_test_jamais_lu(setup, monkeypatch):
+    def interdit(*args, **kwargs):
+        raise AssertionError("load_test appele alors que le hash est faux")
+
+    monkeypatch.setattr(backtester.holdout, "load_test", interdit)
+    with pytest.raises(ValueError, match="hash"):
+        run_test("zero", setup.data, setup.strategies, setup.repo, setup.results, "0" * 64)
+    assert not setup.results.exists()
 
 
 # gardes
@@ -318,6 +408,7 @@ def test_runner_n_importe_pas_holdout_au_niveau_module():
 def test_main_train(train_dir, monkeypatch, capsys):
     write_file(train_dir / "data" / "BTCUSDT_4h.csv", (train_dir / "BTCUSDT_4h.csv").read_text(encoding="utf-8"))
     write_file(train_dir / "backtester" / "strategies" / "zero.py", strategy_source(0, 0))
+    monkeypatch.setattr(backtester.runner, "DATA_SHA256", sha256(train_dir / "data" / "BTCUSDT_4h.csv"))
     monkeypatch.chdir(train_dir)
     assert main(["train", "zero"]) == 0
     out = capsys.readouterr().out.splitlines()
@@ -347,6 +438,7 @@ def cli_repo(tmp_path):
 
 
 def test_main_test_puis_verrou(cli_repo, monkeypatch, capsys):
+    monkeypatch.setattr(backtester.runner, "DATA_SHA256", sha256(cli_repo / "data" / "BTCUSDT_4h.csv"))
     monkeypatch.chdir(cli_repo)
     assert main(["test", "zero"]) == 0
     out = capsys.readouterr().out.splitlines()

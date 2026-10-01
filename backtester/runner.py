@@ -1,5 +1,6 @@
 import argparse
 import ast
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -16,6 +17,15 @@ DATA_PATH = "data/BTCUSDT_4h.csv"
 RESULTS_PATH = "docs/resultats_test.md"
 STRATEGIES_DIR = "backtester/strategies"
 
+# SHA-256 du CSV propre verifie en P1 (ecrit dans le README). Le test ne se joue qu'une fois : si
+# le CSV etait regenere differemment, le resultat porterait sur d'autres donnees sans que rien ne
+# le signale. Train et test doivent juger exactement les donnees verifiees en P1.
+DATA_SHA256 = "299fb0ec948f43df270dc162659388f5b6b87152501cc7212f5b57e9424dd1fa"
+
+# Nombre maximal de coupures de check_causality : chaque coupure rappelle compute_targets, on
+# borne donc le cout du controle quelle que soit la strategie.
+MAX_CUTS = 300
+
 # Appels interdits dans une strategie : open lit des fichiers (donc potentiellement le CSV et le
 # test), eval/exec/__import__ executeraient ou importeraient du code que l'analyse ast ne voit pas.
 FORBIDDEN_CALLS = {"open", "eval", "exec", "__import__"}
@@ -28,6 +38,26 @@ ALLOWED_IMPORTS = {
     "math", "statistics", "collections", "itertools", "functools", "operator", "decimal",
     "fractions", "typing", "dataclasses", "__future__",
 }
+
+
+def check_data_hash(path, expected):
+    """Leve ValueError si le SHA-256 du fichier path differe de expected.
+
+    Pourquoi : le test ne se joue qu'une fois. Si le CSV etait regenere differemment (autre
+    telechargement, autre nettoyage, fichier corrompu), le resultat porterait sur d'autres donnees
+    que celles verifiees en P1, sans que rien ne le signale. Train et test doivent juger les memes
+    donnees, donc les deux commandes verifient le hash avant de lire une seule bougie.
+
+    Lecture binaire par blocs : le hash porte sur les octets exacts du fichier (fins de ligne
+    comprises), sans charger tout le fichier en memoire.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    found = h.hexdigest()
+    if found != expected:
+        raise ValueError(f"hash des donnees inattendu pour {path} : trouve {found}, attendu {expected}")
 
 
 def strategy_path(name, strategies_dir):
@@ -147,25 +177,8 @@ def period_targets(strategy, history, period):
     return [0] * min(n_forced, len(targets)) + targets[n_forced:]
 
 
-def check_causality(strategy, candles):
-    """Leve ValueError si une cible depend de bougies posterieures a son index.
-
-    Pourquoi ici : la SPEC rend l'anti-lookahead obligatoire (Gate P3 et Interface strategie). Un
-    test ecrit a la main pour chaque strategie peut etre oublie ou mal ecrit ; ce controle tourne
-    a chaque run train, donc aucune strategie n'atteint le tag test-<nom> sans y etre passee.
-
-    Methode : full = compute_targets(candles), puis pour chaque k d'une liste fixe, les cibles
-    calculees sur candles[:k] doivent etre egales a full[:k]. Une strategie causale ne voit pas la
-    difference ; une strategie qui lit candles[i+1] change de cible quand on retire la suite. Les
-    k sont deterministes (pas d'aleatoire) : le controle donne le meme verdict a chaque run.
-
-    Limite : seule la dependance au futur visible sur ces coupures est detectee. Une strategie
-    peut tricher seulement a d'autres index, ou etre causale et fausse : ce n'est pas une preuve
-    de correction, c'est un filet contre l'erreur la plus couteuse.
-    """
-    n = len(candles)
-    full = strategy.compute_targets(candles)
-    cuts = sorted({k for k in (1, 2, 10, 100, 1000, n // 2, n - 1) if 1 <= k < n})
+def _check_cuts(strategy, candles, full, cuts):
+    """Pour chaque k de cuts, leve ValueError si compute_targets(candles[:k]) != full[:k]."""
     for k in cuts:
         partial = strategy.compute_targets(candles[:k])
         if len(partial) != k:
@@ -177,7 +190,45 @@ def check_causality(strategy, candles):
             )
 
 
-def run_train(name, data_path, strategies_dir):
+def check_causality(strategy, candles):
+    """Leve ValueError si une cible depend de bougies posterieures a son index.
+
+    Pourquoi ici : la SPEC rend l'anti-lookahead obligatoire (Gate P3 et Interface strategie). Un
+    test ecrit a la main pour chaque strategie peut etre oublie ou mal ecrit ; ce controle tourne
+    a chaque run train, donc aucune strategie n'atteint le tag test-<nom> sans y etre passee.
+
+    Methode : full = compute_targets(candles), calcule une seule fois, puis pour chaque coupure k
+    les cibles calculees sur candles[:k] doivent etre egales a full[:k]. Une strategie causale ne
+    voit pas la difference ; une strategie qui lit candles[i+1] change de cible quand on retire la
+    suite. Couper a k ne verifie en pratique que les cibles juste avant k (celles dont le futur lu
+    a ete retire) : quelques coupures fixes ne verifieraient donc que quelques index.
+
+    Coupures :
+    - les coupures fixes 1, 2, 10, 100, 1000, n // 2, n - 1 ;
+    - k = i + 1 pour chaque i >= 1 ou full[i] != full[i - 1] : les points de decision. C'est la
+      que la triche change le resultat (une cible qui lit le futur bascule juste avant le
+      mouvement qu'elle anticipe), et couper juste apres i retire exactement ce futur ;
+    - 50 coupures regulierement espacees sur toute la longueur, pour couvrir aussi les zones sans
+      changement de cible.
+    On garde 1 <= k < n, trie ; au-dela de MAX_CUTS coupures, on en garde MAX_CUTS regulierement
+    espacees dans la liste triee. Aucun aleatoire : meme verdict a chaque run.
+
+    Limite : une strategie qui triche a un point de decision ecarte par la reduction a MAX_CUTS,
+    ou dont la triche ne change aucune cible sur ces bougies, passe. Ce n'est pas une preuve de
+    correction, c'est un filet contre l'erreur la plus couteuse.
+    """
+    n = len(candles)
+    full = strategy.compute_targets(candles)
+    cuts = {1, 2, 10, 100, 1000, n // 2, n - 1}
+    cuts |= {i + 1 for i in range(1, len(full)) if full[i] != full[i - 1]}
+    cuts |= {n * j // 51 for j in range(1, 51)}
+    cuts = sorted(k for k in cuts if 1 <= k < n)
+    if len(cuts) > MAX_CUTS:
+        cuts = [cuts[j * (len(cuts) - 1) // (MAX_CUTS - 1)] for j in range(MAX_CUTS)]
+    _check_cuts(strategy, candles, full, cuts)
+
+
+def run_train(name, data_path, strategies_dir, expected_sha256):
     """Lance le gate P3 sur le train et retourne {"warmup": WARMUP, **resultat de gate.evaluate}.
 
     history vide : le dataset commence au 2021-01-01, il n'y a aucune bougie avant, donc les
@@ -188,7 +239,14 @@ def run_train(name, data_path, strategies_dir):
     sans que rien ne dise pourquoi. check_causality tourne ici et pas dans run_test : le run test
     doit appeler compute_targets le moins possible (un plantage la-bas consomme le run), et la
     strategie y arrive gelee, apres etre passee par ce controle au train.
+
+    expected_sha256 est obligatoire (pas de valeur par defaut : un oubli doit planter, pas sauter
+    le controle). Le hash est verifie avant load_train : le train doit juger les donnees verifiees
+    en P1, celles-la memes que jugera le test.
     """
+    if not Path(data_path).is_file():
+        raise ValueError(f"donnees introuvables : {data_path}")
+    check_data_hash(data_path, expected_sha256)
     candles = load_train(data_path)
     strategy = load_strategy(strategy_path(name, strategies_dir))
     if strategy.WARMUP > len(candles):
@@ -198,11 +256,14 @@ def run_train(name, data_path, strategies_dir):
     return {"warmup": strategy.WARMUP, **gate.evaluate(candles, targets)}
 
 
-def run_test(name, data_path, strategies_dir, repo_dir, results_path):
+def run_test(name, data_path, strategies_dir, repo_dir, results_path, expected_sha256):
     """Lance l'unique run test de name et retourne le resultat, deja ecrit dans results_path.
 
     L'ordre est la regle (SPEC, Gate P3 etapes 4 a 6, Verrou renforce, Plantage du run test) :
     1. check_lock en premier : si le verrou refuse, le test n'est jamais lu, pas meme charge.
+    1b. check_data_hash juste apres : le run test est unique, il doit porter sur les donnees
+       verifiees en P1 (les memes que le train). Sinon refus, avant de charger la strategie ou
+       de lire une bougie du test. expected_sha256 n'a pas de valeur par defaut : un oubli plante.
     2. load_strategy avant load_test : une strategie invalide est refusee avant de lire le test,
        et on a besoin de son WARMUP pour savoir combien de bougies du train fournir.
     3. holdout importe seulement ici, apres le verrou : c'est le seul chemin qui charge le test.
@@ -212,6 +273,7 @@ def run_test(name, data_path, strategies_dir, repo_dir, results_path):
        second run. L'affichage est fait par main, une fois le resultat sur le disque.
     """
     check_lock(name, repo_dir, results_path)
+    check_data_hash(data_path, expected_sha256)
     strategy = load_strategy(strategy_path(name, strategies_dir))
     from backtester.holdout import load_test
 
@@ -244,9 +306,9 @@ def main(argv=None):
 
     try:
         if args.command == "train":
-            _print_result(run_train(args.name, DATA_PATH, STRATEGIES_DIR))
+            _print_result(run_train(args.name, DATA_PATH, STRATEGIES_DIR, DATA_SHA256))
         else:
-            result = run_test(args.name, DATA_PATH, STRATEGIES_DIR, Path.cwd(), RESULTS_PATH)
+            result = run_test(args.name, DATA_PATH, STRATEGIES_DIR, Path.cwd(), RESULTS_PATH, DATA_SHA256)
             _print_result(result)
             print(f"Resultat ecrit dans {RESULTS_PATH} : commite-le MAINTENANT (git add {RESULTS_PATH}, git commit)")
     except (LockError, ValueError) as e:
