@@ -1,5 +1,18 @@
 # Gate P2 - calcul a la main
 Capital 1000 USDT, f = 0.001, s = 0.0005. Calcul fait a la calculatrice, sans IA.
+## Entrees (t numerote de 1 a 10 ; dans le code, index = t - 1)
+| t  | open | close | cible decidee au close |
+|----|------|-------|------------------------|
+| 1  | 100  | 101   | 0 |
+| 2  | 101  | 102   | 1 |
+| 3  | 102  | 105   | 1 |
+| 4  | 105  | 108   | 1 |
+| 5  | 108  | 107   | 0 |
+| 6  | 110  | 109   | 0 |
+| 7  | 109  | 105   | 1 |
+| 8  | 104  | 102   | 1 |
+| 9  | 102  | 98    | 1 |
+| 10 | 98   | 100   | 1 |
 
 ## Execution 1 - achat, open t3 (cible 1 decidee au close t2)
 prix_achat_1 = 102 x 1.0005 = 102.051
