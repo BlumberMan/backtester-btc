@@ -13,3 +13,8 @@
 - Lancer toujours `train` avant de geler : un plantage au test consomme le run.
 - Idée (hors périmètre) : suivi de tendance 1D EMA/SMA200, nécessite autre timeframe et taille de position.
 - Idée (hors périmètre) : mean reversion sur survente RSI/Bollinger, nécessite le volume dans les bougies et un stop.
+- BLOQUANT avant run test : regle "plantage" de la SPEC incompatible avec le runner (nom -v2 = autre fichier strategie) ; reecrire (tag deplace si diff hors strategies/).
+- BLOQUANT avant run test : run_test doit verifier le SHA-256 du CSV contre le README.
+- SPEC : ecrire que chaque periode demarre neutre (historique limite a WARMUP), handicap pour le critere 4.
+- donchian_calcul_main : ajouter un cas close = L pendant qu'on est long (egalite a la sortie).
+- donchian.md Transparence : decision a la cloture et execution a l'open suivant, pas comme les Turtles.
