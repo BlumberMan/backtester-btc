@@ -20,15 +20,27 @@ Creation d'un environnement de backtest automatise en Python 3.14 pour le tradin
 - **Out-of-sample (Test) :** 2024-01-01 au 2026-08-31 inclus, en UTC (cette periode ne doit etre regardee qu'une seule fois par strategie).
 
 ## Gate P3
-La strategie doit respecter les criteres suivants sur la periode de test out-of-sample :
-- Au moins 30 trades effectues sur la periode.
-- Un resultat net positif apres frais et slippage.
-- Un resultat toujours superieur ou egal a 0 avec des frais et un slippage doubles.
+- **Periodes :** train = open_time dans [2021-01-01 00:00, 2024-01-01 00:00[ UTC ; test = open_time dans [2024-01-01 00:00, 2026-09-01 00:00[ UTC (memes periodes que la section "Periodes", ecrites comme dans le code).
+- **Prechauffage :** une strategie peut lire les bougies anterieures au debut de la periode pour calculer ses indicateurs. Ses cibles valent 0 pour toute bougie anterieure au debut de la periode : aucun trade ne s'ouvre avant le 2e open de la periode.
+- **Buy and hold de reference :** run_backtest sur les bougies de la periode avec toutes les cibles a 1, memes frais et slippage.
+- **Critere 1 :** au moins 30 trades.
+- **Critere 2 :** capital final > 1000 USDT avec f = 0.001 et s = 0.0005.
+- **Critere 3 :** capital final >= 1000 USDT avec f = 0.002 et s = 0.001.
+- **Critere 4 :** capital final > capital final du buy and hold de reference (f = 0.001, s = 0.0005).
+- **Application :** les 4 criteres s'appliquent d'abord au train, puis au test.
+- **Etape 1 - Ecriture :** avant tout code, l'idee est ecrite dans docs/strategies/<nom>.md : regles d'entree et de sortie, parametres, et liste des combinaisons de parametres a tester sur le train (20 maximum).
+- **Etape 2 - Train :** seules les combinaisons listees sont testees. Une seule est retenue, et ce choix est ecrit dans le meme fichier.
+- **Etape 3 - Echec au train :** idee abandonnee. Cet echec ne compte pas dans la condition d'arret.
+- **Etape 4 - Gel :** la strategie et ses parametres sont commites, puis un tag git test-<nom> est pose avant le run test.
+- **Etape 5 - Test :** un seul run, par une commande dediee. Le resultat est ajoute a docs/resultats_test.md et commite immediatement, y compris en cas d'echec.
+- **Etape 6 - Verrou :** la commande de test refuse de s'executer si <nom> figure deja dans docs/resultats_test.md.
+- **Etape 7 - Echec au test :** idee abandonnee definitivement. Aucune variante de la meme regle (autres parametres, filtre ajoute) ne peut etre retestee.
+- **Anti-lookahead :** chaque strategie a un test obligatoire : modifier les bougies posterieures a t ne change aucune cible jusqu'a t.
 
 Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune tentative de reajustement.
 
 ## Condition d'arret
-- Trois idees de strategie echouees au gate P3 : fin du volet trading, le projet s'arrete la et le backtester reste uniquement comme projet personnel.
+- Trois idees de strategie echouees au test (etape 7 du gate P3) : fin du volet trading, le projet s'arrete la et le backtester reste uniquement comme projet personnel. Les echecs au train ne comptent pas.
 
 ## Moteur (P2)
 - Spot, long ou neutre uniquement : position 0 (100 % USDT) ou 1 (100 % BTC). Pas de short : sur spot, shorter impose d'emprunter, donc du levier (interdit).
@@ -53,7 +65,7 @@ Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune
 - **P2 - Moteur de backtest :** Simulation des trades incluant frais et slippage. 
   *Gate :* Le resultat calcule par le moteur sur 10 bougies est identique au calcul fait a la main sur papier.
 - **P3 - Validation :** Train sur 2021-2023, Test sur 2024-2026. 
-  *Gate :* voir section "Gate P3" ci-dessus (3 criteres).
+  *Gate :* voir section "Gate P3" ci-dessus (4 criteres, train puis test).
 - **P4 - Paper trading :** Live sans argent reel pendant 2 mois minimum. 
   *Gate :* critere chiffre fixe avant le demarrage de P4, jamais pendant.
 - **P5 - Argent reel :** 100 € maximum alloues pour tester la psychologie face au marche reel.
