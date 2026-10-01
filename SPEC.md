@@ -39,6 +39,13 @@ Creation d'un environnement de backtest automatise en Python 3.14 pour le tradin
 
 Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune tentative de reajustement.
 
+## Regles complementaires P3
+- **Prechauffage sur le train :** le dataset commence au 2021-01-01, il n'y a aucune bougie avant. Chaque strategie declare sa fenetre WARMUP (nombre de bougies d'historique necessaires). Sur le train, ses cibles valent 0 pour les WARMUP premieres bougies. Sur le test, elle peut lire les bougies du train qui precedent le 2024-01-01, avec des cibles a 0 avant le debut du test.
+- **Chargement des donnees :** la fonction de chargement du train ne retourne jamais de bougie avec open_time >= 2024-01-01. Seule la commande de test charge le test.
+- **Verrou renforce :** la commande de test refuse de s'executer si le tag test-<nom> n'existe pas, si HEAD n'est pas ce tag, si l'arbre git n'est pas propre, ou si <nom> figure deja dans docs/resultats_test.md.
+- **Plantage du run test :** le resultat est ecrit dans docs/resultats_test.md avant tout affichage. Si la commande plante avant cette ecriture, aucun chiffre n'a ete vu : un bug d'infrastructure peut etre corrige, avec un nouveau tag test-<nom>-v2, uniquement si git diff entre les deux tags ne touche aucun fichier de la strategie. Si un chiffre a ete vu, le run est consomme.
+- **Buy and hold du test :** calcule uniquement par la commande de test. Interdit de calculer, tracer ou regarder le prix ou le buy and hold de 2024-2026 en dehors de cette commande.
+
 ## Condition d'arret
 - Trois idees de strategie echouees au test (etape 7 du gate P3) : fin du volet trading, le projet s'arrete la et le backtester reste uniquement comme projet personnel. Les echecs au train ne comptent pas.
 
