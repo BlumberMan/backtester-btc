@@ -27,3 +27,6 @@ Leçons : les hash de référence sont dans le README ; toute régénération de
 
 Prochaine étape : début de prochaine session (autre jour) : download + clean + 2 certutil → si identiques, P1 VALIDÉ, puis ouverture de P2.
 
+2026-10-01 (session 5) — P1 VALIDÉ (autre jour, data supprimée avant, hash identiques au README). P2 : SPEC moteur (5030b11), calcul à la main de référence commité avant le code (762f8a5, capital final 1030.74808821717, 2 trades), engine.py + 9 tests, 30 passed ; gate P2 validé si CI verte.
+Leçons : le Bloc-notes réécrit le Markdown → VS Code pour les .md ; un diff plus large que prévu ne se commite pas ; un calcul de référence fait par un LLM ne vaut rien → fait à la calculatrice ; vérifier l'ordre de grandeur avant d'écrire un chiffre ; un test anti-lookahead doit utiliser des données où close[t] != open[t+1].
+Prochaine étape : ouvrir P3 — d'abord régler l'item BACKLOG « test regardé une seule fois » (mécanisme avant toute stratégie), puis module de chargement du CSV propre et découpe train/test.
