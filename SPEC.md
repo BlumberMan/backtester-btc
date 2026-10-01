@@ -46,6 +46,13 @@ Tout echec ou resultat neutre entraine l'abandon immediat de l'idee, sans aucune
 - **Plantage du run test :** le resultat est ecrit dans docs/resultats_test.md avant tout affichage. Si la commande plante avant cette ecriture, aucun chiffre n'a ete vu : un bug d'infrastructure peut etre corrige, avec un nouveau tag test-<nom>-v2, uniquement si git diff entre les deux tags ne touche aucun fichier de la strategie. Si un chiffre a ete vu, le run est consomme.
 - **Buy and hold du test :** calcule uniquement par la commande de test. Interdit de calculer, tracer ou regarder le prix ou le buy and hold de 2024-2026 en dehors de cette commande.
 
+## Interface strategie
+- Une strategie est un fichier backtester/strategies/<nom>.py, ou <nom> est celui du tag test-<nom>. Le fichier est charge par son chemin, donc "-" est autorise dans le nom.
+- Elle definit une constante entiere WARMUP (>= 0) et une fonction compute_targets(candles) -> list[int] de 0 ou 1, de meme longueur que candles. candles = tuples du moteur (open_time, open, high, low, close).
+- La cible a l'index i ne depend que de candles[0..i] (test anti-lookahead obligatoire).
+- Stdlib uniquement. Aucune lecture de fichier, aucune date en dur, aucun import de data, lock, gate ou engine. Les parametres sont des constantes du fichier.
+- Le forcage des cibles a 0 pendant le prechauffage est fait par l'appelant, jamais par la strategie.
+
 ## Condition d'arret
 - Trois idees de strategie echouees au test (etape 7 du gate P3) : fin du volet trading, le projet s'arrete la et le backtester reste uniquement comme projet personnel. Les echecs au train ne comptent pas.
 
