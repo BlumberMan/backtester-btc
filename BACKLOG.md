@@ -11,3 +11,5 @@
 - WARMUP > 6570 ne plante qu'au test ; DATA_PATH et RESULTS_PATH relatifs (lancer depuis la racine).
 - lock : pas de test avec "ema\n" ni avec git en échec ; résultats supprimés non détectés par le verrou.
 - Lancer toujours `train` avant de geler : un plantage au test consomme le run.
+- Idée (hors périmètre) : suivi de tendance 1D EMA/SMA200, nécessite autre timeframe et taille de position.
+- Idée (hors périmètre) : mean reversion sur survente RSI/Bollinger, nécessite le volume dans les bougies et un stop.
