@@ -8,7 +8,8 @@ import pytest
 import backtester.holdout
 from backtester.clean import CLEAN_HEADER, to_utc_str
 from backtester.lock import LockError
-from backtester.runner import load_strategy, main, period_targets, run_test, run_train
+import backtester.runner
+from backtester.runner import check_causality, load_strategy, main, period_targets, run_test, run_train
 
 T0 = 1609459200000  # 2021-01-01T00:00:00Z
 STEP = 14400000  # 4h
@@ -35,6 +36,35 @@ def write_csv(path, end):
     lines = [",".join(CLEAN_HEADER)] + [line(t) for t in range(T0, end, STEP)]
     path.write_text("".join(l + "\n" for l in lines), encoding="utf-8")
     return path
+
+
+def write_rising_csv(path, end):
+    """Prix strictement croissants (+1 par bougie) : une strategie qui lit la bougie suivante
+    change de cible quand on la retire, ce que les prix constants de write_csv ne montreraient pas."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [",".join(CLEAN_HEADER)]
+    for i, t in enumerate(range(T0, end, STEP)):
+        p = f"{10000 + i}.00000000"
+        lines.append(f"{t},{to_utc_str(t)},{p},{p},{p},{p},1234.56789000")
+    path.write_text("".join(l + "\n" for l in lines), encoding="utf-8")
+    return path
+
+
+CAUSAL = (
+    "WARMUP = 0\n\n"
+    "def compute_targets(candles):\n"
+    "    return [1 if i >= 1 and candles[i][4] > candles[i - 1][4] else 0 for i in range(len(candles))]\n"
+)
+
+CHEAT = (
+    "WARMUP = 0\n\n"
+    "def compute_targets(candles):\n"
+    "    return [1 if i + 1 < len(candles) and candles[i + 1][4] > candles[i][4] else 0 for i in range(len(candles))]\n"
+)
+
+
+def rising_candles(n):
+    return [(T0 + i * STEP, 100.0 + i, 100.0 + i, 100.0 + i, 100.0 + i) for i in range(n)]
 
 
 def write_file(path, content):
@@ -119,9 +149,37 @@ def test_load_strategy_refuse(tmp_path, content):
         load_strategy(write_file(tmp_path / "bad.py", content))
 
 
+@pytest.mark.parametrize("imp", ["import os", "import pathlib", "import subprocess", "from pathlib import Path"])
+def test_load_strategy_refuse_stdlib_hors_liste_blanche(tmp_path, imp):
+    with pytest.raises(ValueError, match="modules autorises"):
+        load_strategy(write_file(tmp_path / "bad.py", imp + "\n" + VALID))
+
+
+@pytest.mark.parametrize("imp", ["import math", "from statistics import mean", "from collections import deque"])
+def test_load_strategy_accepte_liste_blanche(tmp_path, imp):
+    assert load_strategy(write_file(tmp_path / "ok.py", imp + "\n" + VALID)).WARMUP == 10
+
+
 def test_load_strategy_fichier_absent(tmp_path):
     with pytest.raises(ValueError):
         load_strategy(tmp_path / "absent.py")
+
+
+# check_causality
+
+def strategy_from(source):
+    namespace = {}
+    exec(source, namespace)
+    return SimpleNamespace(WARMUP=namespace["WARMUP"], compute_targets=namespace["compute_targets"])
+
+
+def test_check_causality_strategie_causale_passe():
+    check_causality(strategy_from(CAUSAL), rising_candles(50))
+
+
+def test_check_causality_strategie_tricheuse_refusee():
+    with pytest.raises(ValueError, match="lookahead"):
+        check_causality(strategy_from(CHEAT), rising_candles(50))
 
 
 # run_train
@@ -147,6 +205,30 @@ def test_run_train_toujours_1_warmup_5(train_dir):
     result = run_train("un", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies")
     assert result["warmup"] == 5
     assert result["n_trades"] == 1
+
+
+@pytest.fixture
+def rising_dir(tmp_path):
+    write_rising_csv(tmp_path / "BTCUSDT_4h.csv", FIRST_TEST)  # 6570 bougies
+    return tmp_path
+
+
+def test_run_train_strategie_tricheuse_refusee(rising_dir):
+    write_file(rising_dir / "strategies" / "cheat.py", CHEAT)
+    with pytest.raises(ValueError, match="lookahead"):
+        run_train("cheat", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies")
+
+
+def test_run_train_strategie_causale_passe(rising_dir):
+    write_file(rising_dir / "strategies" / "causal.py", CAUSAL)
+    result = run_train("causal", rising_dir / "BTCUSDT_4h.csv", rising_dir / "strategies")
+    assert result["warmup"] == 0
+
+
+def test_run_train_warmup_plus_long_que_le_train(train_dir):
+    write_file(train_dir / "strategies" / "long.py", strategy_source(7000, 0))
+    with pytest.raises(ValueError, match="WARMUP"):
+        run_train("long", train_dir / "BTCUSDT_4h.csv", train_dir / "strategies")
 
 
 # run_test
@@ -193,6 +275,15 @@ def test_run_test_tag_absent_aucune_ecriture(setup):
     with pytest.raises(LockError):
         run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
     assert not setup.results.exists()
+
+
+def test_run_test_n_appelle_pas_check_causality(setup, monkeypatch):
+    def interdit(*args, **kwargs):
+        raise AssertionError("check_causality appele par run_test")
+
+    monkeypatch.setattr(backtester.runner, "check_causality", interdit)
+    result = run_test("zero", setup.data, setup.strategies, setup.repo, setup.results)
+    assert result["n_trades"] == 0
 
 
 def test_run_test_verrou_refuse_test_jamais_lu(setup, monkeypatch):

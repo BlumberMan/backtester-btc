@@ -20,6 +20,15 @@ STRATEGIES_DIR = "backtester/strategies"
 # test), eval/exec/__import__ executeraient ou importeraient du code que l'analyse ast ne voit pas.
 FORBIDDEN_CALLS = {"open", "eval", "exec", "__import__"}
 
+# Liste blanche et non "toute la stdlib" : os, pathlib, io, subprocess, socket ou importlib sont
+# dans la stdlib mais permettraient de lire le CSV (donc le test) ou d'executer du code, ce que la
+# SPEC interdit (Interface strategie, "Aucune lecture de fichier"). Une strategie n'a besoin que
+# de calcul : ces modules suffisent. En ajouter un est une decision explicite, faite ici.
+ALLOWED_IMPORTS = {
+    "math", "statistics", "collections", "itertools", "functools", "operator", "decimal",
+    "fractions", "typing", "dataclasses", "__future__",
+}
+
 
 def strategy_path(name, strategies_dir):
     """Retourne Path(strategies_dir) / "<name>.py".
@@ -35,9 +44,10 @@ def strategy_path(name, strategies_dir):
 def _check_source(tree, path):
     """Leve ValueError si l'ast de la strategie viole les regles de la SPEC (Interface strategie).
 
-    - import hors stdlib : une dependance externe pourrait changer de version et donc changer les
-      cibles sans que le fichier gele par le tag ne change. On teste le premier segment
-      ("os.path" -> "os") contre sys.stdlib_module_names, la liste officielle de l'interpreteur.
+    - import hors ALLOWED_IMPORTS : une dependance externe pourrait changer de version et donc
+      changer les cibles sans que le fichier gele par le tag ne change, et une partie de la stdlib
+      (os, pathlib, io, subprocess...) permettrait de lire le CSV ou d'executer du code. On teste
+      le premier segment ("collections.abc" -> "collections") contre la liste blanche.
     - import relatif (from . import x) : il viserait un module du projet, jamais la stdlib.
     - import commencant par "backtester" : la strategie pourrait appeler data, holdout ou engine,
       donc lire le test ou recalculer le buy and hold hors de la commande de test.
@@ -61,8 +71,9 @@ def _check_source(tree, path):
         for module in modules:
             if module.startswith("backtester"):
                 raise ValueError(f"{path} : import de {module} interdit (aucun import de backtester)")
-            if module.split(".")[0] not in sys.stdlib_module_names:
-                raise ValueError(f"{path} : import de {module} interdit (stdlib uniquement)")
+            if module.split(".")[0] not in ALLOWED_IMPORTS:
+                allowed = ", ".join(sorted(ALLOWED_IMPORTS))
+                raise ValueError(f"{path} : import de {module} interdit (modules autorises : {allowed})")
 
 
 def load_strategy(path):
@@ -136,15 +147,53 @@ def period_targets(strategy, history, period):
     return [0] * min(n_forced, len(targets)) + targets[n_forced:]
 
 
+def check_causality(strategy, candles):
+    """Leve ValueError si une cible depend de bougies posterieures a son index.
+
+    Pourquoi ici : la SPEC rend l'anti-lookahead obligatoire (Gate P3 et Interface strategie). Un
+    test ecrit a la main pour chaque strategie peut etre oublie ou mal ecrit ; ce controle tourne
+    a chaque run train, donc aucune strategie n'atteint le tag test-<nom> sans y etre passee.
+
+    Methode : full = compute_targets(candles), puis pour chaque k d'une liste fixe, les cibles
+    calculees sur candles[:k] doivent etre egales a full[:k]. Une strategie causale ne voit pas la
+    difference ; une strategie qui lit candles[i+1] change de cible quand on retire la suite. Les
+    k sont deterministes (pas d'aleatoire) : le controle donne le meme verdict a chaque run.
+
+    Limite : seule la dependance au futur visible sur ces coupures est detectee. Une strategie
+    peut tricher seulement a d'autres index, ou etre causale et fausse : ce n'est pas une preuve
+    de correction, c'est un filet contre l'erreur la plus couteuse.
+    """
+    n = len(candles)
+    full = strategy.compute_targets(candles)
+    cuts = sorted({k for k in (1, 2, 10, 100, 1000, n // 2, n - 1) if 1 <= k < n})
+    for k in cuts:
+        partial = strategy.compute_targets(candles[:k])
+        if len(partial) != k:
+            raise ValueError(f"compute_targets doit retourner une liste de {k} cibles, trouve {len(partial)}")
+        if list(partial) != list(full[:k]):
+            i = next(j for j, (a, b) in enumerate(zip(partial, full)) if a != b)
+            raise ValueError(
+                f"lookahead detecte : la cible a l'index {i} change quand les bougies posterieures sont retirees"
+            )
+
+
 def run_train(name, data_path, strategies_dir):
     """Lance le gate P3 sur le train et retourne {"warmup": WARMUP, **resultat de gate.evaluate}.
 
     history vide : le dataset commence au 2021-01-01, il n'y a aucune bougie avant, donc les
     WARMUP premieres cibles du train sont forcees a 0 par period_targets. Aucune fonction ici ne
     peut lire le test : load_train s'arrete avant 2024-01-01, et holdout n'est pas importe.
+
+    WARMUP > len(candles) est refuse : tout le train serait force a 0, la strategie ferait 0 trade
+    sans que rien ne dise pourquoi. check_causality tourne ici et pas dans run_test : le run test
+    doit appeler compute_targets le moins possible (un plantage la-bas consomme le run), et la
+    strategie y arrive gelee, apres etre passee par ce controle au train.
     """
     candles = load_train(data_path)
     strategy = load_strategy(strategy_path(name, strategies_dir))
+    if strategy.WARMUP > len(candles):
+        raise ValueError(f"WARMUP ({strategy.WARMUP}) depasse le train ({len(candles)} bougies) : aucune cible possible")
+    check_causality(strategy, candles)
     targets = period_targets(strategy, [], candles)
     return {"warmup": strategy.WARMUP, **gate.evaluate(candles, targets)}
 
