@@ -36,3 +36,7 @@ Prochaine étape : choisir UNE idée, la valider avec moi en 3 phrases, puis éc
 2026-10-01 (session 6 bis) — P3 : strategie donchian ecrite avant le code (696083c), regle de choix fixee (voisines), exception au calcul a la main -> reference naive separee (8e408ed, e6c12c4), SPEC plantage et demarrage neutre (d4b51a5), hash des donnees verifie au train et au test + check_causality aux points de decision (7bcf233), donchian.py egal a la reference sur 3200 cas, 156 tests.
 Lecons : une IA qui propose des strategies a pu voir 2024-2026 -> idee classique et section Transparence ; calcul a la main seulement pour une logique nouvelle ou un chiffre de gate ; quand je bloque, je le dis et on decide une exception ecrite au lieu de sauter l'etape.
 Prochaine etape : P3-4e, balayage des 9 combinaisons sur le train (sans calcul a la main), puis application de la regle de choix telle qu'ecrite.
+
+2026-10-03 (session 7) — P3 : sweep.py + 14 tests (29cfe91, 170 passed), balayage des 9 combinaisons donchian sur le train : AUCUNE retenue (1 seule combinaison à ≥ 30 trades, elle perd), idée abandonnée, ne compte pas dans la condition d'arrêt (0/3).
+Leçons : c1 (30 trades) est le verrou en 4h sur 3 ans, estimer le nombre de trades possible avant d'écrire une idée ; un bon capital avec 10 trades ne prouve rien ; l'abandon s'applique tel qu'écrit, sans variante.
+Prochaine étape : choisir UNE nouvelle idée, la valider avec moi en 3 phrases dont une estimation du nombre de trades, puis docs/strategies/<nom>.md avant tout code.
