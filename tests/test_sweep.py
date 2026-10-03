@@ -8,8 +8,11 @@ from pathlib import Path
 import pytest
 
 from backtester import gate
+from backtester import sweep as sweep_module
 from backtester.runner import load_strategy, period_targets
-from backtester.sweep import GRID, GRID_M, GRID_N, ChoiceRuleError, choose, make_strategy, neighbors, sweep
+from backtester.sweep import (
+    GRID, GRID_M, GRID_N, STRATEGIES, ChoiceRuleError, choose, main, make_strategy, neighbors, product_grid, sweep,
+)
 
 BACKTESTER_DIR = Path(__file__).resolve().parent.parent / "backtester"
 SWEEP_PY = BACKTESTER_DIR / "sweep.py"
@@ -150,3 +153,105 @@ def test_sweep_n_importe_pas_holdout():
         if isinstance(node, ast.ImportFrom):
             assert "holdout" not in (node.module or "")
             assert all("holdout" not in a.name for a in node.names)
+
+
+# sma-cross : grille, voisines, regle de choix et sweep avec les noms ("f", "s")
+
+SMA_F, SMA_S = STRATEGIES["sma-cross"]["grids"]
+SMA_GRID = product_grid(SMA_F, SMA_S)
+SMA_NAMES = STRATEGIES["sma-cross"]["names"]
+
+
+def sma_grid_results(passing, finals=None):
+    """Comme grid_results, sur la grille sma-cross et avec les cles f, s."""
+    finals = finals or {}
+    return [
+        {"f": f, "s": s, "passed": (f, s) in passing, "final_normal": finals.get((f, s), 1000.0)}
+        for f, s in SMA_GRID
+    ]
+
+
+def test_sma_cross_grille_9_combinaisons_de_sma_cross_md():
+    # Liste numerotee 1 a 9 de docs/strategies/sma-cross.md, dans l'ordre.
+    assert SMA_GRID == [
+        (30, 120), (30, 180), (30, 240),
+        (60, 120), (60, 180), (60, 240),
+        (90, 120), (90, 180), (90, 240),
+    ]
+    assert SMA_NAMES == ("f", "s")
+    assert STRATEGIES["sma-cross"]["targets"] == "sma_cross_targets"
+
+
+def test_sma_cross_s_toujours_superieur_a_f():
+    # Condition pour que WARMUP = max(F, S) de make_strategy soit bien le WARMUP = S de sma-cross.md.
+    assert all(s > f for f, s in SMA_GRID)
+    assert all(make_strategy(None, f, s).WARMUP == s for f, s in SMA_GRID)
+
+
+def test_sma_cross_voisines_coin():
+    assert neighbors(SMA_F, SMA_S, 30, 120) == [(30, 180), (60, 120)]
+
+
+def test_sma_cross_voisines_centre():
+    assert neighbors(SMA_F, SMA_S, 60, 180) == [(30, 180), (60, 120), (60, 240), (90, 180)]
+
+
+def test_sma_cross_choose_aucune_ne_passe():
+    assert choose(sma_grid_results(set()), SMA_F, SMA_S, SMA_NAMES) is None
+
+
+def test_sma_cross_choose_une_seule_passe_isolee():
+    assert choose(sma_grid_results({(60, 180)}), SMA_F, SMA_S, SMA_NAMES) is None
+
+
+def test_sma_cross_choose_bloc_coin_avec_ses_voisines():
+    # Meme structure que le test donchian : seules (30, 120) et ses 2 voisines passent, et les
+    # voisines, mieux payees, ne sont pas candidates car leurs propres voisines echouent.
+    passing = {(30, 120), (30, 180), (60, 120)}
+    finals = {(30, 120): 1100.0, (30, 180): 1500.0, (60, 120): 1400.0}
+    chosen = choose(sma_grid_results(passing, finals), SMA_F, SMA_S, SMA_NAMES)
+    assert (chosen["f"], chosen["s"]) == (30, 120)
+
+
+def test_sma_cross_choose_egalite_message_avec_f_et_s():
+    finals = {(30, 120): 1300.0, (60, 120): 1300.0}
+    with pytest.raises(ChoiceRuleError, match="F=30 S=120, F=60 S=120"):
+        choose(sma_grid_results(set(SMA_GRID), finals), SMA_F, SMA_S, SMA_NAMES)
+
+
+def test_resultats_sma_cross_refuses_par_la_grille_donchian_par_defaut():
+    # Des resultats d'une grille ne doivent pas etre juges avec la regle d'une autre.
+    with pytest.raises(ChoiceRuleError):
+        choose(sma_grid_results(set()), names=SMA_NAMES)
+
+
+def test_sma_cross_sweep_9_resultats_cles_f_s():
+    candles = random_candles(random.Random(3), 300)
+    results = sweep(candles, SMA_GRID, lambda c, f, s: [0] * len(c), SMA_NAMES)
+    assert [(r["f"], r["s"]) for r in results] == SMA_GRID
+    for r in results:
+        assert set(r) == {"f", "s", "n_trades", "final_normal", "final_doubled", "final_bh",
+                          "c1", "c2", "c3", "c4", "passed"}
+        assert r["n_trades"] == 0
+
+
+# ligne de commande
+
+def _interdire_data(monkeypatch):
+    # Si argparse laissait passer, la premiere lecture de data/ ferait echouer le test.
+    def interdit(*args, **kwargs):
+        raise AssertionError("data/ lu alors que l'argument devait etre refuse")
+    monkeypatch.setattr(sweep_module, "check_data_hash", interdit)
+    monkeypatch.setattr(sweep_module, "load_train", interdit)
+
+
+def test_main_sans_nom_refuse(monkeypatch):
+    _interdire_data(monkeypatch)
+    with pytest.raises(SystemExit):
+        main([])
+
+
+def test_main_nom_inconnu_refuse(monkeypatch):
+    _interdire_data(monkeypatch)
+    with pytest.raises(SystemExit):
+        main(["inconnu"])
