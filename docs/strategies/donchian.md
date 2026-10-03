@@ -43,3 +43,20 @@ Aucune combinaison ne satisfait la regle de choix : soit aucune ne passe les 4 c
 
 ## Transparence
 Idee proposee apres consultation d'une IA ayant probablement vu des prix 2024-2026. Choisie parce que classique (Turtles, annees 1980) avec parametres standards convertis en bougies 4h, pas tuned. Si le test passe, la preuve est plus faible qu'une idee nee a froid. Ecart avec les Turtles : eux entraient pendant la bougie, des que le prix touchait le record. Ici le signal est decide a la cloture et execute a l'open de la bougie suivante (seul mode du moteur). Ce n'est donc pas exactement la strategie classique.
+
+## Resultats train
+Commit 29cfe91, python -m backtester.sweep, donnees verifiees par hash.
+
+   n    m n_trades  final_normal final_doubled      final_bh    c1    c2    c3    c4 passed
+  60   30       36        799.87        717.91       1439.86  True False False False  False
+  60   60       24       1390.56       1293.87       1439.86 False  True  True False  False
+  60  120       18       1289.32       1221.48       1439.86 False  True  True False  False
+ 120   30       22       1411.60       1321.36       1439.86 False  True  True False  False
+ 120   60       16       1830.56       1744.68       1439.86 False  True  True  True  False
+ 120  120       10       2679.32       2600.06       1439.86 False  True  True  True  False
+ 240   30       18        856.71        811.63       1439.86 False False False False  False
+ 240   60       14        978.79        938.49       1439.86 False False False False  False
+ 240  120        9       1702.32       1656.93       1439.86 False  True  True  True  False
+AUCUNE : idee abandonnee
+
+Verdict : aucune combinaison ne satisfait la regle de choix (une seule combinaison atteint 30 trades, elle perd de l'argent). Idee donchian abandonnee, sans nouvelle combinaison ni filtre. Ne compte pas dans la condition d'arret (echec au train).
