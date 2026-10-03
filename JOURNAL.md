@@ -40,3 +40,7 @@ Prochaine etape : P3-4e, balayage des 9 combinaisons sur le train (sans calcul a
 2026-10-03 (session 7) — P3 : sweep.py + 14 tests (29cfe91, 170 passed), balayage des 9 combinaisons donchian sur le train : AUCUNE retenue (1 seule combinaison à ≥ 30 trades, elle perd), idée abandonnée, ne compte pas dans la condition d'arrêt (0/3).
 Leçons : c1 (30 trades) est le verrou en 4h sur 3 ans, estimer le nombre de trades possible avant d'écrire une idée ; un bon capital avec 10 trades ne prouve rien ; l'abandon s'applique tel qu'écrit, sans variante.
 Prochaine étape : choisir UNE nouvelle idée, la valider avec moi en 3 phrases dont une estimation du nombre de trades, puis docs/strategies/<nom>.md avant tout code.
+
+2026-10-03 (session 7 bis) — Idée « donchian + filtre MA » refusée (variante, filtre ajouté), au BACKLOG (ligne corrigée, bed115b, CI #43 verte). Texte d'une autre IA collé comme idée, refusé (short, ATR sizing, filtres). Idée retenue : croisement de 2 SMA, docs/strategies/sma-cross.md écrit avant tout code (grille 3x3 F 30/60/90, S 120/180/240, même hypothèse que donchian, règle posée : un échec au train ferme les stratégies de tendance). Compteur d'arrêt : 0/3.
+Leçons : un croisement n'est pas un trade, une entrée + sa sortie en font un ; « Everything up-to-date » peut vouloir dire que le commit est déjà parti, git log tranche ; un texte d'une autre IA n'entre pas dans le projet tel quel.
+Prochaine étape : généraliser sweep.py (codé en dur sur donchian), puis sma-cross.py + tests, puis balayage des 9 combinaisons sur le train.
