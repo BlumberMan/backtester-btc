@@ -20,3 +20,4 @@
 - [x] Egalite a la sortie couverte (bougie 10, comparaison a la reference).
 - [x] Ecart Turtles ecrit dans donchian.md (39f4649).
 - run_test : CSV absent -> FileNotFoundError non attrape par main (traceback, aucun chiffre vu).
+- Donchian + filtre MA longue : refuse le 2026-10-03, variante de donchian (filtre ajoute), estimation propre du porteur 12-24 trades < 30.
